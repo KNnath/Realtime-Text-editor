@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-time Text Editor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            align-items: flex-start;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .editor-container {
+            height: 100%;
+            /* Set the desired height for the editor */
+            width: 70%;
+            /* Adjust the width of the editor */
+            position: relative;
+            /* Position relative for cursor decorations */
+            display: flex;
+            flex-direction: column;
+        }
+
+        #editorContainer {
+            flex-grow: 1;
+        }
+
+        .remote-cursor {
+            background-color: rgba(255, 0, 0, 0.5);
+            /* Set cursor color */
+            position: absolute;
+            /* Position absolute for cursor decorations */
+            pointer-events: none;
+            /* Ensure cursor doesn't interfere with editor interaction */
+        }
+
+        .highlighted-text {
+            background-color: yellow;
+            /* Set highlight color */
+        }
+
+        .remote-mouse-pointer {
+            position: absolute;
+            pointer-events: none;
+        }
+
+        .mouse-pointer {
+            width: 10px;
+            height: 10px;
+            background-color: black;
+            border-radius: 50%;
+        }
+
+        .sidebar {
+            width: 20%;
+            padding: 20px;
+            box-sizing: border-box;
+            background-color: rgb(199, 200, 201);
+            height: 100vh;
+        }
+
+        .editor-title {
+            margin-top: 0;
+        }
+        .btn{
+            font-size: 12px;
+            padding: 5px;
+            border: 1px solid black;
+            border-radius: 5px;
+            margin-left: 10px;
+            cursor: pointer;
+        }
+        .btn:hover{
+            background-color: rgb(218, 198, 169);
+            font-weight: 700;
+        }
+    </style>
+    <!-- Load Monaco Editor stylesheet -->
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.23.0/min/vs/editor/editor.main.css">
+    <!-- Load Socket.IO library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.js"></script>
+</head>
+
+<body>
+    <div class="sidebar">
+        <button class="btn" id="leaveRoomBtn">Leave Room</button>
+        <button class="btn" id="copyRoomIdBtn">Copy Room ID</button>
+        <h2>Connected Users:</h2>
+        <ul id="userList" class="user-list"></ul>
+        <h3>Status:</h3>
+        <ul id="status" class="status-list"></ul>
+    </div>
+    <div class="editor-container">
+        <h2 class="editor-title">Real-time Text Editor</h2> <!-- Title added here -->
+        <div id="editorContainer"></div>
+    </div>
+
+    <!-- Load Monaco Editor script -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.23.0/min/vs/loader.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.23.0/min/vs/editor/editor.main.nls.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.23.0/min/vs/editor/editor.main.js"></script>
+    <script>
+        const socket = io();
+
+        // Get room ID and username from URL query parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('roomId');
+        const username = localStorage.getItem('username');
+
+        // Set room ID as title
+        document.title = `Real-time Text Editor - Room ${roomId}`;
+
+        // Get user list element
+        const userList = document.getElementById('userList');
+
+        // Get status list element
+        const statusList = document.getElementById('status');
+
+        // Initialize Monaco Editor
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.23.0/min/vs' } });
+        require(['vs/editor/editor.main'], function () {
+            const editor = monaco.editor.create(document.getElementById('editorContainer'), {
+                value: '',
+                language: 'plaintext', // Set the initial language (e.g., 'plaintext', 'javascript', 'html', etc.)
+                automaticLayout: true // Ensure editor layout adjusts automatically
+            });
+
+            // Variable to store the editor content
+            let editorContent = '';
+
+            // Variable to store the cursor position
+            let cursorPosition = { lineNumber: 1, column: 1 };
+
+            // Event listener for text changes with debounce
+            editor.onDidChangeModelContent(() => {
+                // Get the updated editor content
+                const newContent = editor.getValue();
+                // If the content has changed, update and emit it
+                if (newContent !== editorContent) {
+                    editorContent = newContent;
+                    // Emit text change to server
+                    socket.emit('textChange', { roomId, newText: editorContent });
+                }
+            });
+
+            // Event listener for cursor position changes
+            editor.onDidChangeCursorPosition((event) => {
+                const position = event.position;
+                // Update cursor position only if it's different from the current position
+                if (position.lineNumber !== cursorPosition.lineNumber || position.column !== cursorPosition.column) {
+                    cursorPosition = position;
+                    // Emit cursor position change to server
+                    socket.emit('cursorMove', { roomId, username, position });
+                }
+            });
+
+            // Event listener for text selection changes
+            editor.onDidChangeCursorSelection((event) => {
+                const selection = editor.getSelection();
+                const selectedText = editor.getModel().getValueInRange(selection);
+                const selectionRange = {
+                    startLineNumber: selection.startLineNumber,
+                    startColumn: selection.startColumn,
+                    endLineNumber: selection.endLineNumber,
+                    endColumn: selection.endColumn
+                };
+                // Emit highlight data to server
+                socket.emit('highlightText', { roomId, username, selectedText, selectionRange });
+            });
+
+            // Event listener for keyup event in the editor
+            let isTyping = false;
+            const typingTimeout = 1000; // Adjust as needed
+            let typingTimer;
+            editor.onKeyUp((event) => {
+                if (!isTyping) {
+                    isTyping = true;
+                    // Emit typing start event to server
+                    socket.emit('typingStart', { roomId, username });
+                }
+                clearTimeout(typingTimer);
+                typingTimer = setTimeout(() => {
+                    isTyping = false;
+                    // Emit typing stop event to server
+                    socket.emit('typingStop', { roomId, username });
+                }, typingTimeout);
+            });
+
+            // Update editor content when received from server
+            socket.on('updateEditor', (newText) => {
+                // Update editor content only if it's different from the current content
+                if (newText !== editorContent) {
+                    editorContent = newText;
+                    editor.setValue(newText);
+                }
+            });
+
+            // Event listener for mousemove event on the editor container
+            document.getElementById('editorContainer').addEventListener('mousemove', (event) => {
+                // Emit mouse movement data to server
+                socket.emit('mouseMove', { roomId, username, position: { x: event.clientX, y: event.clientY } });
+            });
+
+            // Handle mouse movement updates from other users
+            socket.on('updateMousePointer', (data) => {
+                // Only update mouse pointer position if it's from a different user
+                if (data.username !== username) {
+                    // Set mouse pointer position
+                    setRemoteMousePointer(data.username, data.position);
+                }
+            });
+
+            // Handle highlight changes from other users
+            socket.on('updateHighlight', (data) => {
+                // Only update highlight if it's from a different user
+                if (data.username !== username) {
+                    const selectionRange = new monaco.Range(data.selectionRange.startLineNumber, data.selectionRange.startColumn, data.selectionRange.endLineNumber, data.selectionRange.endColumn);
+                    // Apply highlight to the selected text range
+                    editor.revealLineInCenter(data.selectionRange.startLineNumber);
+                    editor.deltaDecorations([], [{ range: selectionRange, options: { inlineClassName: 'highlighted-text' } }]);
+                }
+            });
+
+            // Handle removing highlight when received from server
+            socket.on('removeHighlight', (data) => {
+                // Remove highlight from the editor
+                // You may need to adjust this part based on how you implemented highlighting
+                editor.deltaDecorations([], []);
+            });
+
+            // Function to set remote mouse pointer position
+            function setRemoteMousePointer(username, position) {
+                const mousePointerElementId = `mouse-pointer-${username}`;
+                let mousePointerElement = document.getElementById(mousePointerElementId);
+                if (!mousePointerElement) {
+                    // Create mouse pointer element if it doesn't exist
+                    mousePointerElement = document.createElement('div');
+                    mousePointerElement.id = mousePointerElementId;
+                    mousePointerElement.className = 'remote-mouse-pointer';
+                    // Add mouse pointer representation
+                    mousePointerElement.innerHTML = `<div class="mouse-pointer"></div>`;
+                    document.getElementById('editorContainer').appendChild(mousePointerElement);
+                }
+                // Calculate position in pixels
+                const positionPixels = editor.getScrolledVisiblePosition(position);
+                // Set mouse pointer position
+                mousePointerElement.style.left = `${positionPixels.left}px`;
+                mousePointerElement.style.top = `${positionPixels.top}px`;
+            }
+        });
+
+        // Update user list when received from server
+        socket.on('updateUserList', (users) => {
+            // Clear existing user list
+            userList.innerHTML = '';
+            // Add users to the list
+            users.forEach(user => {
+                const li = document.createElement('li');
+                li.textContent = user;
+                li.classList.add('user-list-item');
+                userList.appendChild(li);
+            });
+        });
+
+        // Handle typing status updates from other users
+        socket.on('updateTypingStatus', ({ username, isTyping }) => {
+            const statusMessage = isTyping ? 'is typing...' : '';
+            const typingStatusElement = document.getElementById(`typing-status-${username}`);
+            if (typingStatusElement) {
+                typingStatusElement.textContent = `${username} ${statusMessage}`;
+            } else {
+                const li = document.createElement('li');
+                li.textContent = `${username} ${statusMessage}`;
+                li.id = `typing-status-${username}`;
+                statusList.appendChild(li);
+            }
+        });
+
+        // Event listener for "Leave Room" button
+        document.getElementById('leaveRoomBtn').addEventListener('click', () => {
+            // Emit leaveRoom event to server
+            socket.emit('leaveRoom', { roomId, username });
+            // Redirect to home page or wherever you want
+            window.location.href = 'index.html'; // Replace with appropriate redirection
+        });
+
+        // Event listener for "Copy Room ID" button
+        document.getElementById('copyRoomIdBtn').addEventListener('click', () => {
+            // Copy room ID to clipboard
+            navigator.clipboard.writeText(roomId)
+                .then(() => {
+                    console.log('Room ID copied to clipboard:', roomId);
+                    alert('Room ID copied to clipboard!');
+                })
+                .catch((error) => {
+                    console.error('Failed to copy room ID:', error);
+                    alert('Failed to copy room ID!');
+                });
+        });
+
+        // Notify server that the user has joined the room
+        socket.emit('joinRoom', { roomId, username });
+    </script>
+</body>
+
+</html>

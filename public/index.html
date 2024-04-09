@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.js"></script>
+<link rel="stylesheet" href="editor.main.css">
+<title>Join Room</title>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        margin: 0;
+        background-color: rgb(124, 121, 121);
+    }
+    #joinForm {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 20px;
+        border: 1px solid #000000;
+        border-radius: 5px;
+        height: 40vh;
+        background-color: antiquewhite;
+
+    }
+    #joinForm > * {
+        margin-bottom: 10px;
+    }
+    #joinForm h2{
+        font-size: 30px;
+        margin-bottom: 30px;
+    }
+    .btn{
+      display: flex;
+      flex-direction: row;
+    }
+    #button1{
+      margin-right: 30px;
+      padding: 7px;
+      border: 1px solid black;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      margin-top: 20px;
+    }
+    #button{
+      padding: 7px;
+      border: 1px solid black;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      margin-left: 110px;
+      margin-top: 20px;
+    }
+    #joinForm #h2{
+      margin-bottom: 60px;
+    }
+    #roomInput{
+        margin-left: 10px;
+    }
+    input{
+        padding: 5px;
+        border-radius: 5px;
+        border: 1px solid black;
+        margin-bottom: 20px;
+    }
+    label{
+        font-size: 17px;
+        font-weight: 700;
+    }
+    button [type="button"] {
+        padding: 10px;
+    }
+</style>
+</head>
+<body>
+<form id="joinForm">
+    <h2>Join Room</h2>
+    <div>
+        <label for="roomInput">Room ID:</label>
+        <input type="text" class="input" id="roomInput" required>
+    </div>
+    <div>
+        <label for="usernameInput">Username:</label>
+        <input type="text" class="input" id="usernameInput" required>
+    </div>
+    <div class="btn">
+      <button type="button" id="button1" onclick="generateRoomId()">New Room</button>
+      <button type="button" id="button" onclick="joinRoom()">Join</button>
+    </div>
+</form>
+
+<script>
+    const socket = io();
+
+    function generateRoomId() {
+        // Generate a UUID (Universally Unique Identifier)
+        let roomId = uuidv4();
+        document.getElementById('roomInput').value = roomId;
+    }
+
+    function joinRoom() {
+        // Check if the form is valid
+        if (document.getElementById('joinForm').checkValidity()) {
+            let roomId = document.getElementById('roomInput').value;
+            let username = document.getElementById('usernameInput').value;
+
+            // Store the username in the local storage
+            localStorage.setItem('username', username);
+
+            // Emit a socket event to join the room with the roomId
+            socket.emit('joinRoom', { roomId });
+
+            // Redirect the user to the editor.html page with the roomId
+            window.location.href = `editor.html?roomId=${roomId}`;
+        } else {
+            // If the form is not valid, show an error message or handle it as needed
+            alert('Please fill in all required fields.');
+        }
+    }
+
+    function uuidv4() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            var r = Math.random() * 16 | 0,
+                v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+</script>
+</body>
+</html>
